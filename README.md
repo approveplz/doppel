@@ -13,6 +13,8 @@ No custom Codex build. Your project instructions still apply.
 | --- | --- |
 | Astra (`gpt-6-astra`) | `~/.codex/AGENTS.astra.md` |
 | Sol (`gpt-5.6-sol`) | `~/.codex/AGENTS.sol.md` |
+| Luna (`gpt-5.6-luna`) | `~/.codex/AGENTS.luna.md` |
+| Terra (`gpt-5.6-terra`) | `~/.codex/AGENTS.terra.md` |
 | Missing model file, or any other model | `~/.codex/AGENTS.md` |
 
 The selected file replaces the global fallback. It does not get appended to it.
@@ -24,24 +26,24 @@ You need Codex CLI and Python 3.9+ available as `python3`. Tested with Codex
 **0.153.2** on macOS and Linux. Doppel is experimental.
 
 ```sh
-codex plugin marketplace add approveplz/doppel
-codex plugin add doppel@doppel
-codex
+curl -fsSLo doppel https://github.com/approveplz/doppel/releases/download/v0.3.0/doppel
+chmod +x doppel
+./doppel setup
 ```
 
-1. Before your first message, open `/hooks` and trust both Doppel hooks.
-2. Ask **“Set up Doppel.”**
-3. Run `/new`.
+The script installs the plugin and checks hook approval. If approval is needed,
+open `codex`, trust both Doppel hooks in `/hooks`, and `/quit`. Run
+`./doppel setup` again, then start Codex. No setup conversation or model calls.
 
-Create `AGENTS.astra.md` or `AGENTS.sol.md` in `~/.codex` with the instructions
+Create any of the model files above in `~/.codex` with the instructions
 you want that model to follow. Leave a file absent to use your existing
 `AGENTS.md`. Start a new session after changing the files.
 
-Ask **“Check Doppel status”** to see which files will load. If you use
+Run `./doppel status` to see which files will load. If you use
 `CODEX_HOME`, put the files there instead of `~/.codex`.
 
 Setup creates `AGENTS.override.md` so the hook can select your global
-instructions. **Disable Doppel before uninstalling it.** Setup will not
+instructions. Use `./doppel uninstall` to remove it safely. Setup will not
 overwrite an existing override.
 
 ## Astra coordinates. Sol implements.
@@ -58,14 +60,13 @@ when their model differs from the coordinator's.
 
 ## Uninstall
 
-Ask **“Disable Doppel”**, then run:
-
 ```sh
-codex plugin remove doppel@doppel
+./doppel uninstall
 ```
 
 Start a new session. Normal `AGENTS.md` loading resumes, and your instruction
-files stay where they are.
+files stay where they are. To pause Doppel without removing the plugin, use
+`./doppel disable`.
 
 ## Help and contributing
 

@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "plugins/doppel/scripts/doppel.py"
@@ -44,29 +45,61 @@ class DoppelTests(unittest.TestCase):
         )
 
     def activate(self):
-        self.hook()
-        self.command("enable")
+        # Filesystem behavior is tested here. Stock Codex tests verify real trust.
+        with patch.object(module, "check_hooks"):
+            module.enable(self.home)
 
-    def test_cannot_enable_before_startup_hook(self):
-        result = self.command("enable", success=False)
-        self.assertIn("No startup receipt", result.stderr)
-        self.assertFalse((self.home / "AGENTS.override.md").exists())
+    def test_activation_requires_both_hooks_enabled_and_currently_trusted(self):
+        trusted = [
+            {
+                "pluginId": "doppel@doppel",
+                "eventName": event,
+                "enabled": True,
+                "trustStatus": "trusted",
+            }
+            for event in ("sessionStart", "subagentStart")
+        ]
+        for hooks in (
+            [],
+            trusted[:1],
+            [trusted[0], {**trusted[1], "enabled": False}],
+            [trusted[0], {**trusted[1], "trustStatus": "modified"}],
+        ):
+            with (
+                self.subTest(hooks=hooks),
+                patch.object(
+                    module, "codex_request", return_value={"data": [{"hooks": hooks}]}
+                ),
+            ):
+                with self.assertRaises(ValueError):
+                    module.enable(self.home)
+                self.assertFalse((self.home / "AGENTS.override.md").exists())
+        with patch.object(
+            module, "codex_request", return_value={"data": [{"hooks": trusted}]}
+        ):
+            module.enable(self.home)
+        self.assertEqual(
+            (self.home / "AGENTS.override.md").read_text(), module.OVERRIDE
+        )
 
-    def test_inactive_hook_records_startup_without_loading_instructions(self):
+    def test_inactive_hook_does_not_load_instructions(self):
         result = self.hook()
         self.assertNotIn("hookSpecificOutput", result)
         self.assertNotIn("DEFAULT_ONLY", json.dumps(result))
         status = json.loads(self.command("status").stdout)
-        self.assertTrue(status["startup_observed_for_this_version"])
         self.assertEqual(status["state"], "disabled")
 
     def test_model_selection_fallback_and_parent_child_isolation(self):
         (self.home / "AGENTS.astra.md").write_text("ASTRA_ONLY", encoding="utf-8")
         (self.home / "AGENTS.sol.md").write_text("SOL_ONLY", encoding="utf-8")
+        (self.home / "AGENTS.luna.md").write_text("LUNA_ONLY", encoding="utf-8")
+        (self.home / "AGENTS.terra.md").write_text("TERRA_ONLY", encoding="utf-8")
         self.activate()
         for model, event, expected in (
             ("gpt-6-astra", "SessionStart", "ASTRA_ONLY"),
             ("gpt-5.6-sol", "SubagentStart", "SOL_ONLY"),
+            ("gpt-5.6-luna", "SessionStart", "LUNA_ONLY"),
+            ("gpt-5.6-terra", "SubagentStart", "TERRA_ONLY"),
             ("another-model", "SessionStart", "DEFAULT_ONLY"),
             ("gpt-6-astra", "SessionStart", "ASTRA_ONLY"),
         ):
@@ -75,7 +108,13 @@ class DoppelTests(unittest.TestCase):
                 self.assertEqual(output["hookEventName"], event)
                 context = output["additionalContext"]
                 self.assertIn(expected, context)
-                for other in {"ASTRA_ONLY", "SOL_ONLY", "DEFAULT_ONLY"} - {expected}:
+                for other in {
+                    "ASTRA_ONLY",
+                    "SOL_ONLY",
+                    "LUNA_ONLY",
+                    "TERRA_ONLY",
+                    "DEFAULT_ONLY",
+                } - {expected}:
                     self.assertNotIn(other, context)
         (self.home / "AGENTS.sol.md").unlink()
         self.assertIn(
@@ -102,7 +141,7 @@ class DoppelTests(unittest.TestCase):
 
     def test_enable_disable_are_repeatable_and_preserve_files(self):
         self.activate()
-        self.command("enable")
+        self.activate()
         self.command("disable")
         self.command("disable")
         self.assertFalse((self.home / "AGENTS.override.md").exists())
@@ -128,14 +167,6 @@ class DoppelTests(unittest.TestCase):
         self.assertTrue(override.is_symlink())
         self.assertEqual(target.read_text(), module.OVERRIDE)
 
-    def test_invalid_or_stale_receipt_cannot_enable(self):
-        receipt = module.receipt_path(self.home)
-        receipt.parent.mkdir()
-        for content in ("{bad", "[]", '{"fingerprint":"old-version"}'):
-            receipt.write_text(content, encoding="utf-8")
-            self.command("enable", success=False)
-        self.assertFalse((self.home / "AGENTS.override.md").exists())
-
     def test_oversized_or_invalid_variant_does_not_silently_fall_back(self):
         self.activate()
         variant = self.home / "AGENTS.astra.md"
@@ -149,7 +180,7 @@ class DoppelTests(unittest.TestCase):
             self.assertEqual(result.stdout, "")
             self.assertNotIn("DEFAULT_ONLY", result.stderr)
 
-    def test_invalid_hook_input_does_not_create_receipt(self):
+    def test_invalid_hook_input_is_rejected(self):
         for event in (
             [],
             {},
@@ -157,7 +188,6 @@ class DoppelTests(unittest.TestCase):
             {"hook_event_name": "Stop", "model": "gpt-6-astra"},
         ):
             self.command("hook", event, success=False)
-        self.assertFalse(module.receipt_path(self.home).exists())
 
     def test_status_reports_paths_not_instruction_contents(self):
         result = json.loads(self.command("status").stdout)

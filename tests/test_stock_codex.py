@@ -1,25 +1,29 @@
 """Opt-in integration tests: stock Codex, installed plugin, local mock Responses server.
 
 Run with DOPPEL_CODEX=/absolute/path/to/codex. No API key or paid calls.
-The trust bypass applies only to this test-owned plugin in a temporary CODEX_HOME.
+Hook approval uses native RPCs only for this test-owned plugin in a temporary CODEX_HOME.
 """
 
+import importlib.util
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
-import queue
+import shutil
 import subprocess
 import sys
 import tempfile
 import threading
-import time
 import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
 CODEX = os.environ.get("DOPPEL_CODEX")
 MARKETPLACE = os.environ.get("DOPPEL_MARKETPLACE", str(ROOT))
+SCRIPT = ROOT / "plugins/doppel/scripts/doppel.py"
+spec = importlib.util.spec_from_file_location("doppel", SCRIPT)
+doppel = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(doppel)
 
 
 class ResponsesServer(ThreadingHTTPServer):
@@ -27,6 +31,7 @@ class ResponsesServer(ThreadingHTTPServer):
         super().__init__(("127.0.0.1", 0), ResponsesHandler)
         self.requests = []
         self.delegate = False
+        self.child_model = "gpt-5.6-sol"
         self.spawned = False
         self.child_finished = threading.Event()
 
@@ -61,7 +66,7 @@ class ResponsesHandler(BaseHTTPRequestHandler):
             },
         ]
         if self.server.delegate:
-            if request["model"] == "gpt-5.6-sol":
+            if request["model"] == self.server.child_model:
                 self.server.child_finished.set()
             elif not self.server.spawned:
                 self.server.spawned = True
@@ -75,7 +80,7 @@ class ResponsesHandler(BaseHTTPRequestHandler):
                         "arguments": json.dumps(
                             {
                                 "task_name": "sol_test",
-                                "model": "gpt-5.6-sol",
+                                "model": self.server.child_model,
                                 "fork_turns": "none",
                                 "message": "Reply with Test complete. Do not use tools.",
                             }
@@ -104,6 +109,8 @@ class StockCodexTests(unittest.TestCase):
         (self.home / "AGENTS.md").write_text("FALLBACK_SENTINEL", encoding="utf-8")
         (self.home / "AGENTS.sol.md").write_text("SOL_SENTINEL", encoding="utf-8")
         (self.home / "AGENTS.astra.md").write_text("ASTRA_SENTINEL", encoding="utf-8")
+        (self.home / "AGENTS.luna.md").write_text("LUNA_SENTINEL", encoding="utf-8")
+        (self.home / "AGENTS.terra.md").write_text("TERRA_SENTINEL", encoding="utf-8")
         (self.project / "AGENTS.md").write_text("PROJECT_SENTINEL", encoding="utf-8")
         self.env = {**os.environ, "CODEX_HOME": str(self.home)}
         for name in (
@@ -118,11 +125,12 @@ class StockCodexTests(unittest.TestCase):
         thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         thread.start()
         self.addCleanup(self.server.shutdown)
-        self.run_codex("plugin", "marketplace", "add", MARKETPLACE)
-        installed = json.loads(
-            self.run_codex("plugin", "add", "doppel@doppel", "--json").stdout
-        )
-        self.helper = Path(installed["installedPath"]) / "scripts/doppel.py"
+        self.helper = Path(self.directory.name) / "doppel"
+        shutil.copyfile(SCRIPT, self.helper)
+        pending = self.run_helper("setup", "--source", MARKETPLACE, success=False)
+        self.assertIn("Hook approval needed", pending.stderr)
+        self.assertFalse((self.home / "AGENTS.override.md").exists())
+        self.assertEqual(self.server.requests, [])
 
     def run_codex(self, *args):
         result = subprocess.run(
@@ -156,7 +164,7 @@ class StockCodexTests(unittest.TestCase):
             for arg in ("-c", f"{key}={json.dumps(value)}")
         ]
 
-    def turn(self, model, trust=True):
+    def turn(self, model):
         args = [
             "exec",
             "--model",
@@ -166,32 +174,60 @@ class StockCodexTests(unittest.TestCase):
             "--sandbox",
             "read-only",
         ]
-        if trust:
-            args.append("--dangerously-bypass-hook-trust")
         args += self.config_args()
         self.run_codex(*args, "Reply with Test complete. Do not use tools.")
         return self.server.requests[-1]
 
-    def run_helper(self, command, success=True):
+    def run_helper(self, command, *args, success=True):
         result = subprocess.run(
-            [sys.executable, str(self.helper), command],
+            [sys.executable, str(self.helper), command, *args],
+            cwd=self.project,
             env=self.env,
             text=True,
             capture_output=True,
-            timeout=10,
+            timeout=90,
         )
         if success:
             self.assertEqual(result.returncode, 0, result.stderr)
         else:
             self.assertNotEqual(result.returncode, 0)
+        return result
+
+    def hooks(self):
+        return doppel.codex_request(
+            self.home, "hooks/list", {"cwds": [str(self.project)]}
+        )["data"][0]["hooks"]
+
+    def approve_hooks(self):
+        # The same explicit trust operation as /hooks, only in a test-owned home.
+        doppel.codex_request(
+            self.home,
+            "config/batchWrite",
+            {
+                "edits": [
+                    {
+                        "keyPath": "hooks.state",
+                        "value": {
+                            hook["key"]: {"trusted_hash": hook["currentHash"]}
+                            for hook in self.hooks()
+                        },
+                        "mergeStrategy": "upsert",
+                    }
+                ],
+                "reloadUserConfig": True,
+            },
+        )
 
     def test_actual_requests_select_one_global_file_and_keep_project_instructions(self):
         initial = self.turn("gpt-6-astra")
         self.assertIn("FALLBACK_SENTINEL", json.dumps(initial["input"]))
+        self.approve_hooks()
         self.run_helper("enable")
         for model, expected in (
             ("gpt-6-astra", "ASTRA_SENTINEL"),
             ("gpt-5.6-sol", "SOL_SENTINEL"),
+            ("gpt-5.6-luna", "LUNA_SENTINEL"),
+            ("gpt-5.6-terra", "TERRA_SENTINEL"),
             ("gpt-5.2", "FALLBACK_SENTINEL"),
         ):
             with self.subTest(model=model):
@@ -200,9 +236,13 @@ class StockCodexTests(unittest.TestCase):
                 text = json.dumps(request["input"])
                 self.assertIn(expected, text)
                 self.assertIn("PROJECT_SENTINEL", text)
-                for other in {"ASTRA_SENTINEL", "SOL_SENTINEL", "FALLBACK_SENTINEL"} - {
-                    expected
-                }:
+                for other in {
+                    "ASTRA_SENTINEL",
+                    "SOL_SENTINEL",
+                    "LUNA_SENTINEL",
+                    "TERRA_SENTINEL",
+                    "FALLBACK_SENTINEL",
+                } - {expected}:
                     self.assertNotIn(other, text)
         self.assertEqual((self.home / "AGENTS.md").read_text(), "FALLBACK_SENTINEL")
         (self.home / "AGENTS.sol.md").unlink()
@@ -214,144 +254,84 @@ class StockCodexTests(unittest.TestCase):
         self.assertIn("FALLBACK_SENTINEL", restored)
         self.assertNotIn("ASTRA_SENTINEL", restored)
 
-    def test_fresh_sol_subagent_of_astra_receives_only_sol_global_instructions(self):
-        self.turn("gpt-6-astra")
+    def test_fresh_subagents_receive_only_their_own_global_instructions(self):
+        self.approve_hooks()
         self.run_helper("enable")
-        self.server.requests.clear()
-        self.server.delegate = True
-        self.turn("gpt-6-astra")
-        children = [r for r in self.server.requests if r["model"] == "gpt-5.6-sol"]
-        tool_results = [
-            item
-            for r in self.server.requests
-            for item in r["input"]
-            if item.get("type") == "function_call_output"
-        ]
-        self.assertTrue(children, json.dumps(tool_results))
-        for child in children:
-            context = json.dumps(child["input"])
-            self.assertIn("SOL_SENTINEL", context)
-            self.assertIn("PROJECT_SENTINEL", context)
-            self.assertNotIn("ASTRA_SENTINEL", context)
-            self.assertNotIn("FALLBACK_SENTINEL", context)
-        parent = json.dumps(self.server.requests[0]["input"])
-        self.assertIn("ASTRA_SENTINEL", parent)
-        self.assertNotIn("SOL_SENTINEL", parent)
+        for model, expected in (
+            ("gpt-5.6-sol", "SOL_SENTINEL"),
+            ("gpt-5.6-luna", "LUNA_SENTINEL"),
+            ("gpt-5.6-terra", "TERRA_SENTINEL"),
+        ):
+            with self.subTest(model=model):
+                self.server.requests.clear()
+                self.server.delegate = True
+                self.server.child_model = model
+                self.server.spawned = False
+                self.server.child_finished.clear()
+                self.turn("gpt-6-astra")
+                children = [r for r in self.server.requests if r["model"] == model]
+                self.assertTrue(children, json.dumps(self.server.requests))
+                for child in children:
+                    context = json.dumps(child["input"])
+                    self.assertIn(expected, context)
+                    self.assertIn("PROJECT_SENTINEL", context)
+                    for other in {
+                        "ASTRA_SENTINEL",
+                        "SOL_SENTINEL",
+                        "LUNA_SENTINEL",
+                        "TERRA_SENTINEL",
+                        "FALLBACK_SENTINEL",
+                    } - {expected}:
+                        self.assertNotIn(other, context)
 
-    def test_untrusted_hook_cannot_prepare_activation(self):
-        self.turn("gpt-6-astra", trust=False)
-        self.run_helper("enable", success=False)
-        self.assertFalse((self.home / "AGENTS.override.md").exists())
-
-    def test_trusting_hooks_before_first_message_needs_only_one_new_session(self):
-        # Exercise the same RPCs as /hooks, without bypassing trust or restarting
-        # the thread between approval and its first message.
-        with subprocess.Popen(
-            [CODEX, "app-server", *self.config_args()],
-            cwd=self.project,
-            env=self.env,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            text=True,
-        ) as process:
-            messages = queue.Queue()
-
-            def read_messages():
-                for line in process.stdout:
-                    messages.put(json.loads(line))
-                messages.put(None)
-
-            reader = threading.Thread(target=read_messages, daemon=True)
-            reader.start()
-            request_id = 0
-
-            def receive(predicate):
-                deadline = time.monotonic() + 30
-                while True:
-                    message = messages.get(timeout=max(0, deadline - time.monotonic()))
-                    self.assertIsNotNone(message, "Codex app-server exited")
-                    if predicate(message):
-                        return message
-
-            def rpc(method, params):
-                nonlocal request_id
-                request_id += 1
-                process.stdin.write(
-                    json.dumps({"id": request_id, "method": method, "params": params})
-                    + "\n"
-                )
-                process.stdin.flush()
-                response = receive(lambda message: message.get("id") == request_id)
-                self.assertNotIn("error", response)
-                return response["result"]
-
-            try:
-                rpc(
-                    "initialize",
-                    {"clientInfo": {"name": "doppel-test", "version": "1"}},
-                )
-                thread = rpc(
-                    "thread/start",
-                    {
-                        "model": "gpt-6-astra",
-                        "cwd": str(self.project),
-                        "ephemeral": True,
-                        "approvalPolicy": "never",
-                        "sandbox": "read-only",
-                    },
-                )["thread"]
-                hooks = rpc("hooks/list", {"cwds": [str(self.project)]})["data"][0][
-                    "hooks"
-                ]
-                self.assertEqual(
-                    {hook["eventName"] for hook in hooks},
-                    {"sessionStart", "subagentStart"},
-                )
-                self.assertTrue(
-                    all(hook["trustStatus"] == "untrusted" for hook in hooks)
-                )
-                self.run_helper("enable", success=False)
-                rpc(
-                    "config/batchWrite",
-                    {
-                        "edits": [
-                            {
-                                "keyPath": "hooks.state",
-                                "value": {
-                                    hook["key"]: {"trusted_hash": hook["currentHash"]}
-                                    for hook in hooks
-                                },
-                                "mergeStrategy": "upsert",
-                            }
-                        ],
-                        "reloadUserConfig": True,
-                    },
-                )
-                rpc(
-                    "turn/start",
-                    {
-                        "threadId": thread["id"],
-                        "input": [{"type": "text", "text": "Set up Doppel."}],
-                    },
-                )
-                receive(lambda message: message.get("method") == "turn/completed")
-                self.assertIn(
-                    "FALLBACK_SENTINEL", json.dumps(self.server.requests[-1]["input"])
-                )
-                self.run_helper("enable")
-                self.assertTrue((self.home / "AGENTS.override.md").exists())
-            finally:
-                process.terminate()
-                process.wait(timeout=10)
-                reader.join(timeout=5)
-
-        request = self.turn("gpt-6-astra", trust=False)
+    def test_script_setup_resumes_after_approval_without_a_model_call(self):
+        hooks = self.hooks()
+        self.assertEqual(
+            {hook["eventName"] for hook in hooks}, {"sessionStart", "subagentStart"}
+        )
+        self.assertTrue(all(hook["trustStatus"] == "untrusted" for hook in hooks))
+        self.approve_hooks()
+        self.run_helper("setup", "--source", MARKETPLACE)
+        self.run_helper("setup", "--source", MARKETPLACE)
+        self.assertEqual(self.server.requests, [])
+        self.assertTrue((self.home / "AGENTS.override.md").exists())
+        request = self.turn("gpt-5.6-luna")
         context = json.dumps(request["input"])
-        self.assertIn("ASTRA_SENTINEL", context)
-        self.assertIn("PROJECT_SENTINEL", context)
+        self.assertIn("LUNA_SENTINEL", context)
         self.assertNotIn("FALLBACK_SENTINEL", context)
+        self.run_helper("uninstall")
+        restored = json.dumps(self.turn("gpt-5.6-luna")["input"])
+        self.assertIn("FALLBACK_SENTINEL", restored)
+        self.assertNotIn("LUNA_SENTINEL", restored)
         self.assertEqual((self.home / "AGENTS.md").read_text(), "FALLBACK_SENTINEL")
+        self.assertFalse(
+            json.loads(self.run_codex("plugin", "list", "--json").stdout)["installed"]
+        )
+
+    def test_update_waiting_for_approval_restores_native_fallback(self):
+        self.approve_hooks()
+        self.run_helper("enable")
+        self.turn("gpt-6-astra")
+        hook = self.hooks()[0]
+        doppel.codex_request(
+            self.home,
+            "config/batchWrite",
+            {
+                "edits": [
+                    {
+                        "keyPath": "hooks.state",
+                        "value": {hook["key"]: {"trusted_hash": "revoked"}},
+                        "mergeStrategy": "upsert",
+                    }
+                ],
+                "reloadUserConfig": True,
+            },
+        )
+        self.run_helper("setup", "--source", MARKETPLACE, success=False)
+        self.assertFalse((self.home / "AGENTS.override.md").exists())
+        context = json.dumps(self.turn("gpt-6-astra")["input"])
+        self.assertIn("FALLBACK_SENTINEL", context)
+        self.assertNotIn("ASTRA_SENTINEL", context)
 
 
 if __name__ == "__main__":

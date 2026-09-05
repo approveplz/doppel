@@ -1,6 +1,6 @@
 {
   "name": "doppel",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Select global instructions by model, with AGENTS.md as the fallback.",
   "author": {
     "name": "Alan Zhang"
@@ -10,7 +10,7 @@
   "interface": {
     "displayName": "Doppel",
     "shortDescription": "Choose global AGENTS instructions per model.",
-    "longDescription": "Load AGENTS.sol.md or AGENTS.astra.md when present, otherwise AGENTS.md. Includes setup, status, and safe removal for stock Codex.",
+    "longDescription": "Give Astra, Sol, Luna, and Terra their own global AGENTS instructions, with AGENTS.md as the fallback. Includes a setup script and safe removal for stock Codex.",
     "developerName": "Alan Zhang",
     "category": "Productivity",
     "capabilities": [],

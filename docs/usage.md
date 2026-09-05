@@ -2,9 +2,10 @@
 
 ## Setup help
 
-**Sent a message before trusting the hooks?** Open `/hooks`, trust both Doppel
-hooks, then run `/new` and ask to set up Doppel again. Setup waits for a real
-startup hook before enabling the loader.
+**Setup asks for hook approval?** Open `codex`, use `/hooks` to enable and trust
+both Doppel hooks, then `/quit`. Rerun `./doppel setup` in your terminal. You do
+not need to send a message. Setup checks current trust through Codex's local
+app-server, without opening a model session or granting trust itself.
 
 **Already have an `AGENTS.override.md`?** Doppel refuses to replace it. If
 another loader owns it, disable that loader first. If it contains your own
@@ -12,37 +13,47 @@ instructions, review where you want those instructions to live before moving
 or changing it.
 
 **Instructions missing?** Check that both hooks are enabled and trusted in
-`/hooks`, and that `python3` is available to Codex. Ask to check Doppel status.
+`/hooks`, and that `python3` is available to Codex. Run `./doppel status`.
 After updating the plugin, review any changed hooks and start a new session.
 
-**Removed the plugin before disabling it?** Reinstall Doppel and ask to disable
-it. The helper removes only its own unchanged override. If you edited the
+**Removed the plugin before disabling it?** Run `./doppel disable`. The script
+does not need the plugin installed to restore normal loading. It removes only
+its own unchanged override. If you edited the
 override, review it yourself before removing anything.
 
-## Run the helper directly
+## Commands
 
-Use `codex plugin list --json` to find Doppel's installed path, then choose
-the command you need:
+The download is a standalone Python script, also bundled in the plugin. No
+Python packages are required. You can run it with `python3 doppel` if you do
+not want to make it executable.
 
 ```sh
-python3 /path/to/doppel/scripts/doppel.py status
-python3 /path/to/doppel/scripts/doppel.py enable
-python3 /path/to/doppel/scripts/doppel.py disable
+./doppel setup
+./doppel status
+./doppel disable
+./doppel uninstall
 ```
 
-The helper uses `CODEX_HOME`, or `~/.codex` when unset. Management commands
+Setup registers the marketplace, installs the plugin, checks that both hooks
+are enabled and trusted, and creates the loader override. It is safe to rerun.
+During updates, setup pauses the loader until the new installation passes
+these checks. Normal fallback loading stays available while approval is pending.
+It never rewrites instruction files. Uninstall disables the loader before
+removing the plugin. It leaves the marketplace registration available.
+
+The script uses `CODEX_HOME`, or `~/.codex` when unset. Management commands
 also accept `--home /path/to/test-home`. Status prints selected filenames,
 the loader state, and the next setup step, not your instruction contents.
 
-Enabling requires a startup receipt for the installed helper. The receipt at
-`doppel/startup.json` proves a past startup, not that hooks remain trusted or
-enabled. Disabling leaves the receipt behind.
+For an already installed plugin, `./doppel enable` checks trust and activates
+without reinstalling. `./doppel setup --source /path/to/doppel` installs from
+a local checkout. Set `DOPPEL_CODEX` to use a specific Codex executable.
 
 ## File selection
 
-Doppel reads `AGENTS.astra.md` for `gpt-6-astra` and `AGENTS.sol.md` for
-`gpt-5.6-sol`. A missing variant falls back to `AGENTS.md`. Other models also
-use `AGENTS.md`. These are the two model mappings currently supported.
+Doppel maps `gpt-6-astra` to `AGENTS.astra.md`, `gpt-5.6-sol` to `AGENTS.sol.md`,
+`gpt-5.6-luna` to `AGENTS.luna.md`, and `gpt-5.6-terra` to `AGENTS.terra.md`.
+A missing variant falls back to `AGENTS.md`. Other models also use `AGENTS.md`.
 
 An existing empty variant deliberately selects no global instruction content.
 Files must be UTF-8 and at most 64 KiB. Unreadable or oversized files cause an
@@ -74,8 +85,9 @@ hooks and are not covered.
 Tested on macOS and Linux with Codex CLI 0.153.2. Windows, the desktop app, and
 remote executor setups have not been verified.
 
-Doppel makes no network requests and collects no telemetry. Your selected
-instructions are included in normal Codex model requests.
+Doppel's hooks make no network requests and collect no telemetry. Setup uses
+the Codex CLI to download the plugin from GitHub. Your selected instructions
+are included in normal Codex model requests.
 
 ## Codex references
 

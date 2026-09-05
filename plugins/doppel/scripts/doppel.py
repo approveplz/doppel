@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Select one global instructions file through stock Codex startup hooks."""
+"""Doppel selects one global instructions file through stock Codex startup hooks."""
 
 import argparse
 import hashlib
@@ -15,12 +15,12 @@ MODEL_FILES = {
     "gpt-6-astra": "AGENTS.astra.md",
 }
 MAX_BYTES = 64 * 1024
-OVERRIDE = """# Model Agents global loader
+OVERRIDE = """# Doppel global loader
 
-Global instructions are supplied by the model-agents startup hook.
-Use the model-agents context addressed to your current model, not instructions
+Global instructions are supplied by the doppel startup hook.
+Use the doppel context addressed to your current model, not instructions
 addressed to another model in inherited conversation history.
-If that context is absent, report that Model Agents needs setup or repair before
+If that context is absent, report that Doppel needs setup or repair before
 working. Do not guess a model or silently load a different instructions file.
 Project instructions still apply normally.
 """
@@ -69,7 +69,7 @@ def select_instructions(home, model):
 
 
 def receipt_path(home):
-    return home / "model-agents" / "startup.json"
+    return home / "doppel" / "startup.json"
 
 
 def record_startup(home):
@@ -107,14 +107,18 @@ def run_hook(home, event):
     state = override_state(home)
     if state != "enabled":
         return {
-            "systemMessage": f"Model Agents is {state}. Run the setup skill to check it."
+            "systemMessage": (
+                "Doppel is ready to enable. Ask to set up Doppel."
+                if state == "disabled"
+                else "Doppel found an existing AGENTS.override.md. Run status to review the conflict."
+            )
         }
     path, instructions = select_instructions(home, model)
     source = str(path) if path else "none (no matching file or AGENTS.md)"
     context = (
-        f"# Model Agents global instructions\nModel: {model}\nSource: {source}\n\n"
+        f"# Doppel global instructions\nModel: {model}\nSource: {source}\n\n"
         "These are the selected global instructions for this agent. "
-        "They replace earlier Model Agents global instructions for other models. "
+        "They replace earlier Doppel global instructions for other models. "
         "Follow applicable project instructions where they conflict with these global preferences.\n\n"
         + instructions
     )
@@ -125,7 +129,7 @@ def enable(home):
     state = override_state(home)
     if state == "conflict":
         raise ValueError(
-            "Existing AGENTS.override.md is not owned by Model Agents. It was not changed."
+            "Existing AGENTS.override.md is not owned by Doppel. It was not changed."
         )
     if not startup_observed(home):
         raise ValueError(
@@ -157,10 +161,23 @@ def status(home):
     for model in (*MODEL_FILES, "other models"):
         path, _ = select_instructions(home, model)
         selected[model] = str(path) if path else None
+    state = override_state(home)
+    observed = startup_observed(home)
+    if state == "conflict":
+        next_step = (
+            "Review the existing AGENTS.override.md. Doppel will not overwrite it."
+        )
+    elif state == "enabled":
+        next_step = "Use /new after activation or instruction changes. Check /hooks if instructions are missing."
+    elif observed:
+        next_step = "Run enable, then use /new to load the selected instructions."
+    else:
+        next_step = "Trust both hooks in /hooks before your first message, then ask to set up Doppel. If you already sent a message, use /new first."
     return {
         "codex_home": str(home),
-        "state": override_state(home),
-        "startup_observed_for_this_version": startup_observed(home),
+        "state": state,
+        "startup_observed_for_this_version": observed,
+        "next_step": next_step,
         "selection": selected,
         "note": "A receipt proves a past startup, not that hooks are still enabled or trusted. Check /hooks.",
     }
@@ -193,7 +210,7 @@ def main():
         print(json.dumps(result) if isinstance(result, dict) else result)
         return 0
     except (OSError, ValueError) as error:
-        print(f"Model Agents: {error}", file=sys.stderr)
+        print(f"Doppel: {error}", file=sys.stderr)
         return 1
 
 

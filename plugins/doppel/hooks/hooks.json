@@ -2,13 +2,13 @@
   "hooks": {
     "SessionStart": [{"hooks": [{
       "type": "command",
-      "command": "python3 \"${PLUGIN_ROOT}/scripts/model_agents.py\" hook",
+      "command": "python3 \"${PLUGIN_ROOT}/scripts/doppel.py\" hook",
       "timeout": 10,
       "additionalContextLimit": 0
     }]}],
     "SubagentStart": [{"hooks": [{
       "type": "command",
-      "command": "python3 \"${PLUGIN_ROOT}/scripts/model_agents.py\" hook",
+      "command": "python3 \"${PLUGIN_ROOT}/scripts/doppel.py\" hook",
       "timeout": 10,
       "additionalContextLimit": 0
     }]}]

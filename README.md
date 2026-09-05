@@ -1,133 +1,182 @@
-# Model Agents
+# Doppel
 
-Global instructions for each Codex model. Keep `AGENTS.md` as the fallback.
-Runs on stock Codex. No fork, model API key, or third-party Python packages.
+Different models. Their own instructions.
 
-| Active model | First choice | If missing |
-| --- | --- | --- |
-| `gpt-5.6-sol` | `AGENTS.sol.md` | `AGENTS.md` |
-| `gpt-6-astra` | `AGENTS.astra.md` | `AGENTS.md` |
-| Other models | `AGENTS.md` | No global instructions |
+Give Sol and Astra different global instructions in Codex. Each model gets its
+own file when present, otherwise it gets your existing `AGENTS.md`.
 
-All files live in your Codex home, usually `~/.codex`. `CODEX_HOME` is respected.
-Only one instruction file is selected. An existing empty model file intentionally
-selects no global instruction content. Filenames and model slugs are exact.
+[![Tests](https://github.com/approveplz/doppel/actions/workflows/test.yml/badge.svg)](https://github.com/approveplz/doppel/actions/workflows/test.yml)
+[Experimental release](https://github.com/approveplz/doppel/releases/tag/v0.2.0) · [MIT license](LICENSE)
+
+| Model | Instructions |
+| --- | --- |
+| `gpt-5.6-sol` | `~/.codex/AGENTS.sol.md` |
+| `gpt-6-astra` | `~/.codex/AGENTS.astra.md` |
+
+Missing model files and all other models use `~/.codex/AGENTS.md`. Files replace
+the fallback, not add to it. An empty model file selects no global instruction
+content. If you use `CODEX_HOME`, put the files there instead.
+
+This works with unmodified Codex. Project instructions still load normally.
+Use new sessions and subagents without inherited history. The plugin cannot
+remove instructions already in a conversation.
 
 ## Install
 
-Requires Codex with plugin marketplaces and `SessionStart` / `SubagentStart`
-hooks that report the active model. Tested with **Codex CLI 0.153.2**.
-Python **3.9+** must be available to Codex as `python3`. macOS and Linux are the
-initial supported platforms. Windows is not supported by the bundled command.
+Tested with Codex CLI **0.153.2** on **macOS and Linux**. Codex must be able to
+run **Python 3.9+** as `python3`. Windows, remote executor setups, and desktop
+app behavior have not been verified.
 
-Add the public marketplace and install the plugin:
+**Before installing:** setup creates a global `AGENTS.override.md`. While that
+file exists, Codex relies on this plugin for global instructions. Disable the
+loader before uninstalling the plugin. Setup refuses to overwrite an existing
+override.
 
-```sh
-codex plugin marketplace add approveplz/model-agents
-codex plugin add model-agents@model-agents
-```
-
-1. Open Codex CLI and use `/hooks` to review and trust **both** Model Agents
-   hooks. Do not bypass hook trust for normal use.
-2. Start a new session and ask: **Set up Model Agents.** The included setup
-   skill checks the startup receipt and activates the loader.
-3. Start another new session. It now uses the selected file. Existing sessions
-   may already contain the old fallback instructions.
-
-Add `AGENTS.sol.md` or `AGENTS.astra.md` whenever you want a replacement. Your
-existing `AGENTS.md` is neither renamed nor edited. Project instructions are
-outside this plugin's scope and continue to load normally.
-
-The plugin also appears in the desktop app's plugin catalog after adding the
-marketplace. The documented setup uses CLI hook approval. Desktop behavior has
-not been independently tested.
-
-## Status and removal
-
-Ask Codex to **check Model Agents status** or **disable Model Agents**. Its setup
-skill runs the bundled helper. To run it directly, locate the installed plugin
-with `codex plugin list --json`, then use its `scripts/model_agents.py`:
+Previously installed **Model Agents**? Follow [the migration steps](#migrating-from-model-agents)
+before installing Doppel.
 
 ```sh
-python3 /path/to/plugin/scripts/model_agents.py status
-python3 /path/to/plugin/scripts/model_agents.py disable
+codex plugin marketplace add approveplz/doppel
+codex plugin add doppel@doppel
 ```
 
-Disable the loader **before** removing the plugin:
+1. Open Codex CLI. **Before sending your first message**, open `/hooks` and
+   review and trust both Doppel hooks.
+2. In that same session, ask **“Set up Doppel.”**
+3. Run `/new`. Your selected instructions now apply.
+
+Already sent a message before trusting the hooks? Trust them, then run `/new`
+before asking for setup. The startup hook must run before setup can enable the
+loader. Ask **“Check Doppel status”** whenever you need the selected
+filenames or the next setup step.
+
+Add `AGENTS.sol.md` or `AGENTS.astra.md` when you want different instructions.
+Setup does not create these files or change your existing `AGENTS.md`.
+
+## Subagents and model changes
+
+An Astra coordinator can use `AGENTS.astra.md` while a Sol child uses
+`AGENTS.sol.md`. Spawn the child with `fork_turns="none"` so it does not inherit
+the coordinator's instruction history.
+
+Start a new session after changing models or editing instruction files. The
+plugin does not reload them on every turn. After updates, review any changed
+hooks in `/hooks` and start a new session.
+
+## Migrating from Model Agents
+
+Ask Codex to **“Disable Model Agents”** while the old plugin is still installed.
+Then remove it and its marketplace:
 
 ```sh
 codex plugin remove model-agents@model-agents
+codex plugin marketplace remove model-agents
 ```
 
-Start a new session to restore ordinary `AGENTS.md` loading. Removal preserves
-all your instruction files and removes only the unchanged override created by
-Model Agents. It leaves a harmless startup receipt in `model-agents/startup.json`.
+Follow the Doppel install steps above. Your `AGENTS.md`, `AGENTS.sol.md`, and
+`AGENTS.astra.md` files do not need changes. Doppel will not overwrite the old
+loader's `AGENTS.override.md`, so disable the old loader first.
 
-If the plugin has already been removed, reinstall it to run `disable`. If you
-edited its override, the helper refuses to remove it. Inspect and resolve that
-file yourself rather than discarding your changes.
+If you already removed the old plugin, its [v0.1.0 release](https://github.com/approveplz/doppel/releases/tag/v0.1.0)
+is still available. Reinstall it from that tag to disable the old loader:
+
+```sh
+codex plugin marketplace add approveplz/doppel --ref v0.1.0
+codex plugin add model-agents@model-agents
+```
+
+## Disable or uninstall
+
+Ask Codex to **“Disable Doppel” first**, then remove the plugin:
+
+```sh
+codex plugin remove doppel@doppel
+```
+
+Start a new session to restore normal `AGENTS.md` loading. Your instruction
+files stay untouched. The helper removes only the unchanged override it created.
+
+If you already removed the plugin, reinstall it and ask Codex to disable it.
+If you edited the override, the helper refuses to remove it. Review that file
+yourself so you do not lose your changes.
+
+<details>
+<summary>Run setup commands directly</summary>
+
+Find the installed plugin path with `codex plugin list --json`, then run:
+
+```sh
+python3 /path/to/plugin/scripts/doppel.py status
+python3 /path/to/plugin/scripts/doppel.py enable
+python3 /path/to/plugin/scripts/doppel.py disable
+```
+
+Choose the command you need. Enabling still requires a startup hook receipt.
+The receipt at `doppel/startup.json` records a past execution of this
+plugin version, not whether its hooks remain trusted or enabled. Removal leaves
+that small file behind.
+
+</details>
 
 ## How it works
 
-Codex automatically loads global `AGENTS.override.md` **instead of** `AGENTS.md`.
-Setup creates a small override telling the agent that a hook supplies its global
-instructions. The hook receives the actual model and injects the corresponding
-file, or the original `AGENTS.md` when no variant exists.
+Codex prefers global `AGENTS.override.md` over `AGENTS.md`. This plugin keeps
+a fixed override and uses `SessionStart` and `SubagentStart` hooks to read the
+file for the active model. Sessions never swap or rewrite shared instruction
+files.
 
-The override stays constant. Concurrent Astra and Sol sessions never swap or
-rewrite shared instruction files. Setup refuses existing overrides, including
-symlinks. It requires evidence that this version's startup hook has executed.
-That receipt proves a past execution, not ongoing trust or enablement.
+Hooks add developer context rather than native AGENTS messages. The plugin
+tells the model to defer to project instructions on conflicts, but it does not
+reproduce Codex's native instruction handling exactly or guarantee obedience.
 
-Instruction files are UTF-8 and capped at 64 KiB each. Oversized or unreadable
-selected files produce a hook error instead of silently selecting a different
-file. Hook output is bounded here and delivered without Codex's usual preview
-truncation. The plugin performs no network requests and sends no telemetry.
-Selected instructions become part of the normal Codex model request.
+If hooks stop running, the override still prevents automatic fallback loading.
+It tells the agent to report missing instructions, but cannot enforce a stop.
+Run `disable` to restore the fallback. Codex's internal system agents are not
+covered.
 
-## Limits worth knowing
+Files must be UTF-8 and at most 64 KiB. A file that cannot be read or exceeds
+that limit causes an error, not a silent fallback. The plugin makes no network
+requests and collects no telemetry. Selected instructions are sent as part of
+your normal Codex model request.
 
-- **Fresh history:** Astra coordinators and fresh-history Sol subagents select
-  independently. Explicitly request `fork_turns="none"` for clean separation.
-  Forked or resumed history can retain previously injected instructions.
-- **Model changes:** Start a new session after switching models or editing
-  instructions. This version does not reload on every turn or tool call.
-- **Hooks must stay on:** Disabling, untrusting, or removing the plugin while its
-  override remains suppresses automatic global fallback. The override tells the
-  agent to report missing context, but that is a prompt, not an enforcement gate.
-  Run `disable` to recover.
-- **Prompt role:** Hooks inject developer context, not native AGENTS messages.
-  The wrapper explicitly defers to project instructions on conflicts, but this
-  is not an exact replacement of Codex's native instruction machinery.
-- **Scope:** Only global instructions and ordinary spawned subagents are handled.
-  Codex's internal system agents and remote executor setups are not covered.
-- **Updates:** Changed hooks need trust review again. Use status and start a new
-  session after upgrading. Disable the loader first if an update breaks hooks.
+## Bugs and contributions
 
-## Development
+[Open an issue](https://github.com/approveplz/doppel/issues) with your OS,
+Codex version, steps to reproduce, and expected result. Include the selected
+filename if relevant. Do not post credentials or private instruction content.
 
-The plugin has one Python module and no third-party runtime dependencies.
-For a local checkout, use `codex plugin marketplace add /absolute/path/to/model-agents`
-instead of the GitHub source.
+Small fixes, clearer docs, and reproducible compatibility reports are welcome.
+For changes to file selection or setup, describe the proposed behavior in an
+issue first.
+
+To test a change:
 
 ```sh
 python3 -m unittest discover -s tests -v
-MODEL_AGENTS_CODEX="$(command -v codex)" python3 -m unittest discover -s tests -v
+DOPPEL_CODEX="$(command -v codex)" python3 -m unittest discover -s tests -v
 ```
 
-The second command also installs the plugin into temporary Codex homes and runs
-stock Codex against a local mock Responses server. It checks actual outbound
-instruction content, fallback suppression, restoration, trust gating, and fresh
-Sol delegation from Astra. No paid inference or API credentials are needed.
-The test harness explicitly bypasses hook trust only for its own fixture plugin.
-It does not change the user's real Codex home or install a global override.
+The second command also tests stock Codex against a local mock model server.
+It checks the instructions actually sent, including fallback selection, safe
+removal, hook approval, and Sol delegation from Astra. The onboarding test uses
+the same approval requests as `/hooks` and verifies setup needs only one new
+session. Tests use temporary Codex homes and no paid model calls. Other tests
+bypass hook approval only inside their temporary homes.
 
-These tests prove loading behavior, not live-model obedience.
+For local plugin development, replace the GitHub source in the install command
+with the absolute path to your checkout.
+
+To test the public download instead of local source:
+
+```sh
+DOPPEL_CODEX="$(command -v codex)" DOPPEL_MARKETPLACE=approveplz/doppel python3 -m unittest discover -s tests -v
+```
 
 ## References
 
-- [Codex AGENTS discovery](https://learn.chatgpt.com/docs/agent-configuration/agents-md#how-codex-discovers-guidance)
-- [Codex hooks](https://learn.chatgpt.com/docs/hooks)
-- [Plugin marketplaces](https://developers.openai.com/plugins/build/plugins#add-a-marketplace-from-the-cli)
+[Codex instruction discovery](https://learn.chatgpt.com/docs/agent-configuration/agents-md#how-codex-discovers-guidance) ·
+[Hooks](https://learn.chatgpt.com/docs/hooks) ·
+[Plugin installation](https://developers.openai.com/plugins/build/plugins#add-a-marketplace-from-the-cli)
 
-MIT licensed. Independent project, not an official OpenAI plugin.
+Maintained by [approveplz](https://github.com/approveplz).
+Independent project, not an official OpenAI plugin.

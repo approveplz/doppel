@@ -8,17 +8,15 @@ import tempfile
 import unittest
 
 
-SCRIPT = (
-    Path(__file__).resolve().parents[1] / "plugins/model-agents/scripts/model_agents.py"
-)
-spec = importlib.util.spec_from_file_location("model_agents", SCRIPT)
+SCRIPT = Path(__file__).resolve().parents[1] / "plugins/doppel/scripts/doppel.py"
+spec = importlib.util.spec_from_file_location("doppel", SCRIPT)
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
 
-class ModelAgentsTests(unittest.TestCase):
+class DoppelTests(unittest.TestCase):
     def setUp(self):
-        self.directory = tempfile.TemporaryDirectory(prefix="model-agents-test-")
+        self.directory = tempfile.TemporaryDirectory(prefix="doppel-test-")
         self.addCleanup(self.directory.cleanup)
         self.home = Path(self.directory.name) / "home with spaces"
         self.home.mkdir()

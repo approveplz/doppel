@@ -1,10 +1,10 @@
 {
-  "name": "model-agents",
-  "interface": {"displayName": "Model Agents"},
+  "name": "doppel",
+  "interface": {"displayName": "Doppel"},
   "plugins": [
     {
-      "name": "model-agents",
-      "source": {"source": "local", "path": "./plugins/model-agents"},
+      "name": "doppel",
+      "source": {"source": "local", "path": "./plugins/doppel"},
       "policy": {"installation": "AVAILABLE", "authentication": "ON_INSTALL"},
       "category": "Productivity"
     }

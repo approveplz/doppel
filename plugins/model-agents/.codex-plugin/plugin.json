@@ -1,0 +1,19 @@
+{
+  "name": "model-agents",
+  "version": "0.1.0",
+  "description": "Select global instructions by model, with AGENTS.md as the fallback.",
+  "author": {
+    "name": "Alan Zhang"
+  },
+  "skills": "./skills/",
+  "license": "MIT",
+  "interface": {
+    "displayName": "Model Agents",
+    "shortDescription": "Choose global AGENTS instructions per model.",
+    "longDescription": "Load AGENTS.sol.md or AGENTS.astra.md when present, otherwise AGENTS.md. Includes setup, status, and safe removal for stock Codex.",
+    "developerName": "Alan Zhang",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": "Set up model-specific global instructions with Model Agents."
+  }
+}

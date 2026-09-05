@@ -1,0 +1,12 @@
+{
+  "name": "model-agents",
+  "interface": {"displayName": "Model Agents"},
+  "plugins": [
+    {
+      "name": "model-agents",
+      "source": {"source": "local", "path": "./plugins/model-agents"},
+      "policy": {"installation": "AVAILABLE", "authentication": "ON_INSTALL"},
+      "category": "Productivity"
+    }
+  ]
+}
